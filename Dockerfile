@@ -1,10 +1,10 @@
 FROM python:2.7
 MAINTAINER  Chad Dewitt <projectaur@gmail.com>
 
-COPY src /opt/src
 COPY requirements.txt /opt/requirements.txt
 WORKDIR /opt
 RUN pip install -r requirements.txt
+COPY src /opt/src
 
 EXPOSE      8081
 ENTRYPOINT  ["uwsgi", \

@@ -5,6 +5,7 @@ import six
 import argparse
 from docker import Client
 from flask import Flask, make_response, jsonify
+from flask.ext.cache import Cache
 
 METRICS = None
 CONTAINER_REFRESH_INTERVAL = None
@@ -15,15 +16,17 @@ def initialize_app():
     global CONTAINER_REFRESH_INTERVAL, DOCKER_CLIENT
     parser = argparse.ArgumentParser()
     parser.add_argument('--docker_client_url', '-url', dest='docker_client_url', default='unix://var/run/docker.sock')
+    parser.add_argument('--refresh_interval', '-r', dest='refresh_interval', default=60)
     parser.add_argument('--container_refresh_interval', dest='container_refresh_interval', default=120)
     args, remaining_args = parser.parse_known_args()
     flask_app = Flask(__name__)
     flask_app.config['PROPAGATE_EXCEPTIONS'] = True
+    flask_cache = Cache(flask_app, config={'CACHE_TYPE': 'simple', 'CACHE_DEFAULT_TIMEOUT': args.refresh_interval})
     CONTAINER_REFRESH_INTERVAL = args.container_refresh_interval
     DOCKER_CLIENT = Client(base_url=args.docker_client_url)
-    return flask_app
+    return flask_app, flask_cache
 
-app = initialize_app()
+app, cache = initialize_app()
 
 
 @app.errorhandler(Exception)
@@ -33,6 +36,7 @@ def handle_error(ex):
     return response
 
 
+@cache.cached()
 @app.route('/metrics', methods=['GET'])
 def get_metrics():
     global METRICS
@@ -56,7 +60,6 @@ def update_metrics():
 
 
 def parse_metrics(m):
-    # TODO add more help comments
     lines = [
         '# HELP See documentation for the docker stats API as each metric directly coorelates to a stat value returned '
         'from the API'

@@ -11,13 +11,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-DOCKER            := docker
+DOCKER                 ?= docker
 DOCKER_REPOSITORY_NAME ?= projectaur
-DOCKER_IMAGE_NAME ?= docker-stats-exporter
-DOCKER_IMAGE_TAG  ?= $(subst /,-,$(shell git rev-parse --abbrev-ref HEAD))
+DOCKER_IMAGE_NAME      ?= docker-stats-exporter
+DOCKER_IMAGE_TAG       ?= $(subst /,-,$(shell git rev-parse --abbrev-ref HEAD))
+
+VIRTUALENV     ?= virtualenv
+VIRTUALENV_DIR ?= venv
 
 all: docker
 
 docker:
 	@echo ">> building docker image"
 	@$(DOCKER) build -t "$(DOCKER_REPOSITORY_NAME)/$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)" .
+
+venv:
+	@echo ">> setting up virtualenv"
+	@$(VIRTUALENV) "$(VIRTUALENV_DIR)"
+
+requirements:
+	$(VIRTUALENV_DIR)/bin/pip install -r requirements.txt
