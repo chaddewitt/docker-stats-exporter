@@ -105,7 +105,7 @@ def update_container_stats(stats_dict=None):
         if not stats_dict.get(k):
             stats_dict.update({k: DOCKER_CLIENT.stats(container=c['Id'], stream=True)})
     container_names = [c['Names'][0].lstrip('/') for c in running_containers]
-    for k, v in six.iteritems(stats_dict):
+    for k, v in six.iteritems(dict(stats_dict)):
         if k not in container_names:
             stats_dict.pop(k)
     return stats_dict, time.time() + CONTAINER_REFRESH_INTERVAL
