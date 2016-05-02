@@ -12,7 +12,7 @@
 # limitations under the License.
 
 DOCKER                 ?= docker
-DOCKER_REPOSITORY_NAME ?= projectaur
+DOCKER_REPOSITORY_NAME ?= development
 DOCKER_IMAGE_NAME      ?= docker-stats-exporter
 DOCKER_IMAGE_TAG       ?= $(subst /,-,$(shell git rev-parse --abbrev-ref HEAD))
 
