@@ -14,7 +14,7 @@ The required dependencies to build the application
 * Python 2.7.11+
 * virtualenv 15.0.1
 
-The required python package depdencies to build the application
+The required python package to run the application
 * Flask >= 0.10.1
 * Flask-Cache >= 0.13.1
 * docker-py >= 1.8.1
