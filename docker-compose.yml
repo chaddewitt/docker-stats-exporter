@@ -1,0 +1,9 @@
+docker-stats-exporter:
+    container_name: docker-stats-exporter
+    image: projectaur/docker-stats-exporter:development
+    restart: always
+    net: "host"
+    volumes:
+    - "/var/run/docker.sock:/var/run/docker.sock"
+    ports:
+      - "8081:8081"

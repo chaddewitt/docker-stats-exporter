@@ -1,0 +1,4 @@
+flask
+Flask-Cache
+docker-py
+uwsgi
