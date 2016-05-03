@@ -2,6 +2,9 @@ import json
 import time
 import os
 import six
+import traceback
+import sys
+import logging
 from docker import Client
 from flask import Flask, make_response, jsonify
 from flask.ext.cache import Cache
@@ -24,11 +27,15 @@ def initialize_app():
     return flask_app, flask_cache
 
 app, cache = initialize_app()
+app.logger.setLevel(logging.ERROR)
 
 
 @app.errorhandler(Exception)
 def handle_error(ex):
-    response = jsonify(message=str(ex))
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    error = traceback.print_exception(exc_type, exc_value, exc_traceback, limit=2)
+    app.logger.error(error)
+    response = jsonify(message=str(error))
     response.status_code = getattr(ex, 'code', 500)
     return response
 
