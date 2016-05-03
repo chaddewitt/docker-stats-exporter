@@ -1,29 +1,26 @@
 import json
 import time
-
+import os
 import six
-import argparse
 from docker import Client
 from flask import Flask, make_response, jsonify
 from flask.ext.cache import Cache
+from psuedo_file_metrics import PseudoFileStats
+import re
 
 METRICS = None
-CONTAINER_REFRESH_INTERVAL = None
-DOCKER_CLIENT = None
+REFRESH_INTERVAL = os.environ.get('REFRESH_INTERVAL', 60)
+CONTAINER_REFRESH_INTERVAL = os.environ.get('CONTAINER_REFRESH_INTERVAL', 120)
+DOCKER_CLIENT = Client(base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'))
+USE_PSEUDO_FILES = bool(os.environ.get('USE_PSEUDO_FILES', False))
+CGROUP_DIRECTORY = os.environ.get('CGROUP_DIRECTORY', '/sys/fs/cgroup')
+PROC_DIRECTORY = os.environ.get('PROC_DIRECTORY', '/proc')
 
 
 def initialize_app():
-    global CONTAINER_REFRESH_INTERVAL, DOCKER_CLIENT
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--docker_client_url', '-url', dest='docker_client_url', default='unix://var/run/docker.sock')
-    parser.add_argument('--refresh_interval', '-r', dest='refresh_interval', default=60)
-    parser.add_argument('--container_refresh_interval', dest='container_refresh_interval', default=120)
-    args, remaining_args = parser.parse_known_args()
     flask_app = Flask(__name__)
     flask_app.config['PROPAGATE_EXCEPTIONS'] = True
-    flask_cache = Cache(flask_app, config={'CACHE_TYPE': 'simple', 'CACHE_DEFAULT_TIMEOUT': args.refresh_interval})
-    CONTAINER_REFRESH_INTERVAL = args.container_refresh_interval
-    DOCKER_CLIENT = Client(base_url=args.docker_client_url)
+    flask_cache = Cache(flask_app, config={'CACHE_TYPE': 'simple', 'CACHE_DEFAULT_TIMEOUT': REFRESH_INTERVAL})
     return flask_app, flask_cache
 
 app, cache = initialize_app()
@@ -49,19 +46,22 @@ def get_metrics():
 
 
 def update_metrics():
-    stats, update_ts = update_container_stats()
+    update_stats = update_pseudo_file_stats if USE_PSEUDO_FILES else update_container_stats
+    parse_stats = parse_pseudo_file_metrics if USE_PSEUDO_FILES else parse_api_metrics
+    stats, update_ts = update_stats()
     while True:
         if update_ts <= time.time():
             stats, update_ts = update_container_stats(stats_dict=stats)
         metrics = {}
         for c_name, s in six.iteritems(stats):
             metrics[str(c_name)] = json.loads(s.next())
-        yield parse_metrics(metrics)
+        parsed_metrics = parse_stats(metrics)
+        yield parsed_metrics
 
 
-def parse_metrics(m):
+def parse_api_metrics(m):
     lines = [
-        '# HELP See documentation for the docker stats API as each metric directly coorelates to a stat value returned '
+        '# HELP See documentation for the docker stats API as each metric directly correlates to a stat value returned '
         'from the API'
     ]
     for container, stats in six.iteritems(m or {}):
@@ -77,10 +77,9 @@ def parse_metrics(m):
         for stat_name in memory_stats.get('stats'):
             lines.append(make_line('memory_stats_%s' % stat_name, container, memory_stats['stats'][stat_name]))
         io_stats = stats.get('blkio_stats', {}).get('io_service_bytes_recursive')
-        io_read_stats = [i.get('value') for i in io_stats if i.get('op') is 'Read']
-        lines.append(make_line('blkio_stats_io_service_bytes_read', container, io_read_stats[0] if io_read_stats else 0))
-        io_write_stats = [i.get('value') for i in io_stats if i.get('op') is 'Write']
-        lines.append(make_line('blkio_stats_io_service_bytes_write', container, io_write_stats[0] if io_write_stats else 0))
+        io_stats_dict = {i.get('op'): i.get('value') for i in io_stats}
+        for stat_name, stat_value in six.iteritems(io_stats_dict):
+            lines.append(make_line('blkio_stats_io_service_bytes_%s' % stat_name.lower(), container, stat_value))
         network_stats = stats.get('networks')
         for stat_name, interface_stats in six.iteritems(network_stats or {}):
             for metric_name, metric_value in six.iteritems(interface_stats or {}):
@@ -92,9 +91,8 @@ def parse_metrics(m):
 
 
 def make_line(metric_name, container, metric):
-    if not isinstance(metric, int):
-        metric = 0
-    return str('docker_stats_%s{container="%s"} %s' % (metric_name, container, metric))
+    metric_name = metric_name.replace('.', '_').lower()
+    return str('docker_stats_%s{container="%s"} %s' % (metric_name, container, int(metric)))
 
 
 def update_container_stats(stats_dict=None):
@@ -109,6 +107,63 @@ def update_container_stats(stats_dict=None):
         if k not in container_names:
             stats_dict.pop(k)
     return stats_dict, time.time() + CONTAINER_REFRESH_INTERVAL
+
+
+def update_pseudo_file_stats(stats_dict=None):
+    stats_dict = stats_dict or {}
+    running_containers = DOCKER_CLIENT.containers()
+    for c in running_containers:
+        c_name = c['Names'][0].lstrip('/')
+        c_inspect = DOCKER_CLIENT.inspect_container(str(c['Id']))
+        c_pid = c_inspect.get('State', {}).get('Pid')
+        stats_dict.update({c_name: PseudoFileStats(CGROUP_DIRECTORY, PROC_DIRECTORY, str(c['Id']), c_pid)})
+    container_names = [c['Names'][0].lstrip('/') for c in running_containers]
+    for c_name, v in six.iteritems(dict(stats_dict)):
+        if c_name not in container_names:
+            stats_dict.pop(c_name)
+    return stats_dict, time.time() + CONTAINER_REFRESH_INTERVAL
+
+
+def parse_pseudo_file_metrics(m):
+    lines = [
+        "# Help See https://docs.docker.com/v1.8/articles/runmetrics/#metrics-from-cgroups-memory-cpu-block-i-o"
+    ]
+    for container, stats in six.iteritems(m or {}):
+        lines.append(make_line('last_seen', container, 1))
+        for default_k, s in six.iteritems(stats):
+            for k, v in six.iteritems(s or {}):
+                if default_k == 'net':
+                    for net_k, net_v in six.iteritems(v):
+                        for nest_net_k, nest_net_v in six.iteritems(net_v):
+                            key = '{}_{}_{}'.format(k, net_k, nest_net_k)
+                            lines += parse_line_value(default_k, key, nest_net_v, container)
+                else:
+                    lines += parse_line_value(default_k, k, v, container)
+    lines.sort()
+    string_buffer = "\n".join(lines)
+    string_buffer += "\n"
+    return string_buffer
+
+
+def parse_line_value(default_k, k, v, container):
+    k = '{}_{}'.format(default_k, k) if default_k not in k else k
+    lines = []
+    if isinstance(v, list):
+        for i, item in enumerate(v):
+            if re.match('^[A-Za-z_]+\s[0-9]+$', item):
+                key, value = item.split(' ')
+                lines.append(make_line('{}_{}'.format(k, key), container, value))
+            elif re.match('^[0-9]+:[0-9]+\s[A-Za-z_]+\s[0-9]+', item):
+                _, key, value = item.split(' ')
+                lines.append(make_line('{}_{}'.format(k, key), container, value))
+            elif re.match('^[0-9]+$', item):
+                if len(v) > 1:
+                    lines.append(make_line('{}_{}'.format(k, i), container, item))
+                else:
+                    lines.append(make_line(k, container, item))
+    else:
+        lines.append(make_line(k, container, v))
+    return lines
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8081)
