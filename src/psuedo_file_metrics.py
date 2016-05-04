@@ -55,7 +55,7 @@ class PseudoFileStats(object):
 
     def get_metrics(self):
         metrics = {}
-        cpu = self.get_psuedo_stat_dir('cpu')
+        cpu = self.get_psuedo_stat_dir('cpuacct')
         memory = self.get_psuedo_stat_dir('memory')
         blkio = self.get_psuedo_stat_dir('blkio')
         net = self.get_psuedo_stat_dir('net')
