@@ -27,13 +27,17 @@ def initialize_app():
     return flask_app, flask_cache
 
 app, cache = initialize_app()
-app.logger.setLevel(logging.ERROR)
+app.logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+app.logger.addHandler(handler)
 
 
 @app.errorhandler(Exception)
 def handle_error(ex):
     exc_type, exc_value, exc_traceback = sys.exc_info()
-    error = traceback.print_exception(exc_type, exc_value, exc_traceback, limit=2)
+    traceback.print_exception(exc_type, exc_value, exc_traceback, limit=2)
+    error = traceback.format_exception(exc_type, exc_value, exc_traceback, limit=2)
     app.logger.error(error)
     response = jsonify(message=str(error))
     response.status_code = getattr(ex, 'code', 500)
