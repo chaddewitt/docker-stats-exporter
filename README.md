@@ -59,12 +59,13 @@ to mount the proper cgroup and proc volumes.
 docker run \
        -p 8081:8081 \
        -v "/var/run/docker.sock:/var/run/docker.sock" \
-       -v "/sys/fs/cgroup:/sys/fs/cgroup:ro" \
-       -v "/proc:/proc:ro" \
+       -v "/:/rootfs:ro" \
        -e "USE_PSEUDO_FILES=1" \
+       -e "PROC_DIRECTORY=/rootfs/proc" \
+       -e "CGROUP_DIRECTORY=/rootfs/sys/fs/cgroup" \
        cdewitt/docker-stats-exporter
 ```
-To figure out where your control groups are mounted, you can run
+To figure out where your control groups are mounted on the host, you can run
 ```
 grep cgroup /proc/mounts
 ```
