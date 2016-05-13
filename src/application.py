@@ -14,7 +14,7 @@ import re
 METRICS = None
 REFRESH_INTERVAL = os.environ.get('REFRESH_INTERVAL', 60)
 CONTAINER_REFRESH_INTERVAL = os.environ.get('CONTAINER_REFRESH_INTERVAL', 120)
-DOCKER_CLIENT = Client(base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'))
+DOCKER_CLIENT = Client(base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'), version='auto')
 USE_PSEUDO_FILES = bool(os.environ.get('USE_PSEUDO_FILES', False))
 CGROUP_DIRECTORY = os.environ.get('CGROUP_DIRECTORY', '/sys/fs/cgroup')
 PROC_DIRECTORY = os.environ.get('PROC_DIRECTORY', '/proc')
@@ -49,7 +49,7 @@ def handle_error(ex):
     error = format_exception()
     response = jsonify(message=str(error))
     response.status_code = getattr(ex, 'code', 500)
-    DOCKER_CLIENT = Client(base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'))
+    DOCKER_CLIENT = Client(base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'), version='auto')
     METRICS = update_metrics()
     return response
 
