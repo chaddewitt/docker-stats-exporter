@@ -33,14 +33,24 @@ handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s -
 app.logger.addHandler(handler)
 
 
-@app.errorhandler(Exception)
-def handle_error(ex):
+def format_exception():
     exc_type, exc_value, exc_traceback = sys.exc_info()
     traceback.print_exception(exc_type, exc_value, exc_traceback, limit=2)
     error = traceback.format_exception(exc_type, exc_value, exc_traceback, limit=2)
     app.logger.error(error)
+    return error
+
+
+@app.errorhandler(Exception)
+def handle_error(ex):
+    global METRICS
+    global DOCKER_CLIENT
+    app.logger.error(str(ex))
+    error = format_exception()
     response = jsonify(message=str(error))
     response.status_code = getattr(ex, 'code', 500)
+    DOCKER_CLIENT = Client(base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'))
+    METRICS = update_metrics()
     return response
 
 
