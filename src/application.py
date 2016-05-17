@@ -35,8 +35,8 @@ app.logger.addHandler(handler)
 
 def format_exception():
     exc_type, exc_value, exc_traceback = sys.exc_info()
-    traceback.print_exception(exc_type, exc_value, exc_traceback, limit=2)
-    error = traceback.format_exception(exc_type, exc_value, exc_traceback, limit=2)
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+    error = traceback.format_exception(exc_type, exc_value, exc_traceback)
     app.logger.error(error)
     return error
 
@@ -90,12 +90,16 @@ def parse_api_metrics(m):
         cpu_stats = stats.get('cpu_stats', {})
         lines.append(make_line('system_cpu_usage', container, cpu_stats['system_cpu_usage']))
         for stat_name in cpu_stats.get('cpu_usage'):
-            lines.append(make_line('cpu_usage_%s' % stat_name, container, cpu_stats['cpu_usage'][stat_name]))
+            if isinstance(cpu_stats['cpu_usage'][stat_name], list):
+                for index, m in enumerate(cpu_stats['cpu_usage'][stat_name]):
+                    lines.append(make_line('cpu_usage_%s' % stat_name, container, m, cpu=index))
+            else:
+                lines.append(make_line('cpu_usage_%s' % stat_name, container, cpu_stats['cpu_usage'][stat_name]))
         memory_stats = stats.get('memory_stats')
-        for stat_name in memory_stats:
+        for stat_name in (memory_stats or {}):
             if stat_name != 'stats':
                 lines.append(make_line('memory_stats_%s' % stat_name, container, memory_stats[stat_name]))
-        for stat_name in memory_stats.get('stats'):
+        for stat_name in (memory_stats.get('stats') or {}):
             lines.append(make_line('memory_stats_%s' % stat_name, container, memory_stats['stats'][stat_name]))
         io_stats = stats.get('blkio_stats', {}).get('io_service_bytes_recursive')
         io_stats_dict = {i.get('op'): i.get('value') for i in io_stats}
@@ -111,9 +115,11 @@ def parse_api_metrics(m):
     return string_buffer
 
 
-def make_line(metric_name, container, metric):
+def make_line(metric_name, container, metric, **extra_labels):
+    extra_labels['container'] = container
+    extra_labels = ','.join(['%s="%s"' % (k, v) for k, v in six.iteritems(extra_labels)])
     metric_name = metric_name.replace('.', '_').lower()
-    return str('docker_stats_%s{container="%s"} %s' % (metric_name, container, int(metric)))
+    return str('docker_stats_%s{%s} %s' % (metric_name, extra_labels, int(metric)))
 
 
 def update_container_stats(stats_dict=None):
@@ -156,8 +162,8 @@ def parse_pseudo_file_metrics(m):
                 if default_k == 'net':
                     for net_k, net_v in six.iteritems(v):
                         for nest_net_k, nest_net_v in six.iteritems(net_v):
-                            key = '{}_{}_{}'.format(k, net_k, nest_net_k)
-                            lines += parse_line_value(default_k, key, nest_net_v, container)
+                            key = '{}_{}'.format(k, nest_net_k)
+                            lines += parse_line_value(default_k, key, nest_net_v, container, network_interface=net_k)
                 else:
                     lines += parse_line_value(default_k, k, v, container)
     lines.sort()
@@ -166,24 +172,24 @@ def parse_pseudo_file_metrics(m):
     return string_buffer
 
 
-def parse_line_value(default_k, k, v, container):
+def parse_line_value(default_k, k, v, container, **extra_labels):
     k = '{}_{}'.format(default_k, k) if default_k not in k else k
     lines = []
     if isinstance(v, list):
         for i, item in enumerate(v):
             if re.match('^[A-Za-z_]+\s[0-9]+$', item):
                 key, value = item.split(' ')
-                lines.append(make_line('{}_{}'.format(k, key), container, value))
+                lines.append(make_line('{}_{}'.format(k, key), container, value, **extra_labels))
             elif re.match('^[0-9]+:[0-9]+\s[A-Za-z_]+\s[0-9]+', item):
                 _, key, value = item.split(' ')
-                lines.append(make_line('{}_{}'.format(k, key), container, value))
+                lines.append(make_line('{}_{}'.format(k, key), container, value, **extra_labels))
             elif re.match('^[0-9]+$', item):
                 if len(v) > 1:
-                    lines.append(make_line('{}_{}'.format(k, i), container, item))
+                    lines.append(make_line('{}_{}'.format(k, i), container, item, **extra_labels))
                 else:
-                    lines.append(make_line(k, container, item))
+                    lines.append(make_line(k, container, item, **extra_labels))
     else:
-        lines.append(make_line(k, container, v))
+        lines.append(make_line(k, container, v, **extra_labels))
     return lines
 
 if __name__ == '__main__':
