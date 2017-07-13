@@ -112,7 +112,7 @@ def parse_api_metrics(m):
 
 
 def make_line(metric_name, container, metric):
-    metric_name = metric_name.replace('.', '_').lower()
+    metric_name = metric_name.replace('.', '_').replace('-', '_').lower()
     return str('docker_stats_%s{container="%s"} %s' % (metric_name, container, int(metric)))
 
 
