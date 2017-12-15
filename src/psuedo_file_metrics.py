@@ -40,11 +40,16 @@ def parse_net_dev(path):
 
 
 class PseudoFileStats(object):
-    def __init__(self, cgroup_dir, proc_dir, cid, pid):
+    def __init__(self, cgroup_dir, proc_dir, container_inspection):
         self.cgroup_dir = cgroup_dir
         self.proc_dir = proc_dir
-        self.cid = cid
-        self.pid = pid
+        self.cid = str(container_inspection['Id'])
+        self.pid = container_inspection.get('State', {}).get('Pid')
+        self.state = container_inspection.get('State', {})
+        if self.state.get("Running") and not self.state.get("Restarting"):
+            self.is_up = 1
+        else:
+            self.is_up = 0
 
     def get_psuedo_stat_dir(self, stat):
         if stat == 'net':
@@ -63,6 +68,7 @@ class PseudoFileStats(object):
         metrics['memory'] = parse_pseduo_dir(memory)
         metrics['blkio'] = parse_pseduo_dir(blkio)
         metrics['net'] = parse_net_dev(net)
+        metrics['is_up'] = self.is_up
         return metrics
 
     def next(self):

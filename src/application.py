@@ -26,6 +26,7 @@ def initialize_app():
     flask_cache = Cache(flask_app, config={'CACHE_TYPE': 'simple', 'CACHE_DEFAULT_TIMEOUT': REFRESH_INTERVAL})
     return flask_app, flask_cache
 
+
 app, cache = initialize_app()
 app.logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
@@ -136,8 +137,7 @@ def update_pseudo_file_stats(stats_dict=None):
     for c in running_containers:
         c_name = c['Names'][0].lstrip('/')
         c_inspect = DOCKER_CLIENT.inspect_container(str(c['Id']))
-        c_pid = c_inspect.get('State', {}).get('Pid')
-        stats_dict.update({c_name: PseudoFileStats(CGROUP_DIRECTORY, PROC_DIRECTORY, str(c['Id']), c_pid)})
+        stats_dict.update({c_name: PseudoFileStats(CGROUP_DIRECTORY, PROC_DIRECTORY, c_inspect)})
     container_names = [c['Names'][0].lstrip('/') for c in running_containers]
     for c_name, v in six.iteritems(dict(stats_dict)):
         if c_name not in container_names:
@@ -151,6 +151,7 @@ def parse_pseudo_file_metrics(m):
     ]
     for container, stats in six.iteritems(m or {}):
         lines.append(make_line('last_seen', container, 1))
+        lines.append(make_line('is_up', container, stats.pop('is_up')))
         for default_k, s in six.iteritems(stats):
             for k, v in six.iteritems(s or {}):
                 if default_k == 'net':
@@ -185,6 +186,7 @@ def parse_line_value(default_k, k, v, container):
     else:
         lines.append(make_line(k, container, v))
     return lines
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8081)
