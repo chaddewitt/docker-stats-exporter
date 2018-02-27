@@ -30,4 +30,18 @@ venv:
 	@$(VIRTUALENV) "$(VIRTUALENV_DIR)"
 
 requirements:
-	$(VIRTUALENV_DIR)/bin/pip install -r requirements.txt
+	$(VIRTUALENV_DIR)/bin/pip install -U -r requirements.txt
+
+format:
+	$(VIRTUALENV_DIR)/bin/pip install yapf
+	sudo $(VIRTUALENV_DIR)/bin/yapf -i -r --style google ./src ./tests
+
+generate-unit-tests: clean # TODO remove this once generated unit tests have been completely implemented
+	pip install -U pythoscope # Note this package is installed outside the virtualenv
+	pythoscope --init .
+	pythoscope src/*.py
+
+clean:
+	-rm -rf .pythoscope
+	-rm -rf venv
+	-$(DOCKER) rmi -f $(DOCKER_IMAGE_NAME)

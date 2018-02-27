@@ -91,6 +91,11 @@ Here is a full list of the available environment variables you can set and a sho
   * Determines the volume the service will parse for network information
   * Defaults to /proc
 
+Misc Notes
+=======
+* Current tests were generated using the `pythoscope` library
+* Code style enforced using the `yapf` package
+
 Roadmap
 =======
 * Implement a 100% test coverage
