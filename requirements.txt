@@ -1,4 +1,4 @@
 flask
-Flask-Cache
+Flask-Caching
 docker-py
 uwsgi
