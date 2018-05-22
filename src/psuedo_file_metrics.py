@@ -68,6 +68,11 @@ class PseudoFileStats(object):
         else:
             self.is_up = 0
 
+        if self.state.get("Health"):
+            self.healthy = int(self.state["Health"].get("Status") == 'healthy')
+        else:
+            self.healthy = self.is_up
+
     def get_psuedo_stat_dir(self, stat):
         if stat == 'net':
             d = join(self.proc_dir, '{pid}/net/dev'.format(pid=self.pid))
@@ -87,6 +92,7 @@ class PseudoFileStats(object):
         metrics['blkio'] = parse_pseduo_dir(blkio)
         metrics['net'] = parse_net_dev(net)
         metrics['is_up'] = self.is_up
+        metrics['healthy'] = self.healthy
         return metrics
 
     def next(self):

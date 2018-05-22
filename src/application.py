@@ -7,7 +7,7 @@ import sys
 import logging
 from docker import Client
 from flask import Flask, make_response, jsonify
-from flask.ext.cache import Cache
+from flask_caching import Cache
 from psuedo_file_metrics import PseudoFileStats
 import re
 
@@ -16,7 +16,7 @@ REFRESH_INTERVAL = os.environ.get('REFRESH_INTERVAL', 60)
 CONTAINER_REFRESH_INTERVAL = os.environ.get('CONTAINER_REFRESH_INTERVAL', 120)
 DOCKER_CLIENT = Client(
     base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'))
-USE_PSEUDO_FILES = bool(os.environ.get('USE_PSEUDO_FILES', False))
+USE_PSEUDO_FILES = bool(os.environ.get('USE_PSEUDO_FILES', 1))
 CGROUP_DIRECTORY = os.environ.get('CGROUP_DIRECTORY', '/sys/fs/cgroup')
 PROC_DIRECTORY = os.environ.get('PROC_DIRECTORY', '/proc')
 
@@ -85,8 +85,8 @@ def update_metrics():
         if update_ts <= time.time():
             stats, update_ts = update_container_stats(stats_dict=stats)
         metrics = {}
-        for c_name, s in six.iteritems(stats):
-            metrics[str(c_name)] = json.loads(s.next())
+        for container_name, container_stats in six.iteritems(stats):
+            metrics[str(container_name)] = json.loads(container_stats.next())
         parsed_metrics = parse_stats(metrics)
         yield parsed_metrics
 
@@ -126,7 +126,7 @@ def parse_api_metrics(m):
         network_stats = stats.get('networks')
         for stat_name, interface_stats in six.iteritems(network_stats or {}):
             for metric_name, metric_value in six.iteritems(
-                    interface_stats or {}):
+                            interface_stats or {}):
                 lines.append(
                     make_line('networks_%s_%s' % (stat_name, metric_name),
                               container, metric_value))
@@ -145,17 +145,18 @@ def make_line(metric_name, container, metric):
 def update_container_stats(stats_dict=None):
     stats_dict = stats_dict or {}
     running_containers = DOCKER_CLIENT.containers()
-    for c in running_containers:
-        k = c['Names'][0].lstrip('/')
-        if not stats_dict.get(k):
-            stats_dict.update({
-                k:
-                DOCKER_CLIENT.stats(container=c['Id'], stream=True)
-            })
-    container_names = [c['Names'][0].lstrip('/') for c in running_containers]
-    for k, v in six.iteritems(dict(stats_dict)):
-        if k not in container_names:
-            stats_dict.pop(k)
+    for container in running_containers:
+        container_name = container['Names'][0].lstrip('/')
+        if not stats_dict.get(container_name):
+            stats_dict.update(
+                {
+                    container_name: DOCKER_CLIENT.stats(container=container['Id'], stream=True)
+                }
+            )
+    container_names = [container['Names'][0].lstrip('/') for container in running_containers]
+    for container_name, _ in six.iteritems(dict(stats_dict)):
+        if container_name not in container_names:
+            stats_dict.pop(container_name)
     return stats_dict, time.time() + CONTAINER_REFRESH_INTERVAL
 
 
@@ -167,7 +168,7 @@ def update_pseudo_file_stats(stats_dict=None):
         c_inspect = DOCKER_CLIENT.inspect_container(str(c['Id']))
         stats_dict.update({
             c_name:
-            PseudoFileStats(CGROUP_DIRECTORY, PROC_DIRECTORY, c_inspect)
+                PseudoFileStats(CGROUP_DIRECTORY, PROC_DIRECTORY, c_inspect)
         })
     container_names = [c['Names'][0].lstrip('/') for c in running_containers]
     for c_name, v in six.iteritems(dict(stats_dict)):
@@ -181,8 +182,8 @@ def parse_pseudo_file_metrics(m):
         "# Help See https://docs.docker.com/v1.8/articles/runmetrics/#metrics-from-cgroups-memory-cpu-block-i-o"
     ]
     for container, stats in six.iteritems(m or {}):
-        lines.append(make_line('last_seen', container, 1))
         lines.append(make_line('is_up', container, stats.pop('is_up')))
+        lines.append(make_line('healthy', container, stats.pop('healthy')))
         for default_k, s in six.iteritems(stats):
             for k, v in six.iteritems(s or {}):
                 if default_k == 'net':

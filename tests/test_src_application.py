@@ -1,4 +1,5 @@
 import unittest
+from src.application import app
 
 
 class TestInitializeApp(unittest.TestCase):
@@ -25,7 +26,9 @@ class TestHandleError(unittest.TestCase):
 class TestGetMetrics(unittest.TestCase):
 
     def test_get_metrics(self):
-        # self.assertEqual(expected, get_metrics())
+        # client = app.test_client()
+        # resp = client.get("/metrics")
+        # self.assertEqual(200, resp.status_code)
         assert False  # TODO: implement your test here
 
 
