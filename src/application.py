@@ -182,6 +182,7 @@ def parse_pseudo_file_metrics(m):
         "# Help See https://docs.docker.com/v1.8/articles/runmetrics/#metrics-from-cgroups-memory-cpu-block-i-o"
     ]
     for container, stats in six.iteritems(m or {}):
+        lines.append(make_line('last_seen', container, 1))
         lines.append(make_line('is_up', container, stats.pop('is_up')))
         lines.append(make_line('healthy', container, stats.pop('healthy')))
         for default_k, s in six.iteritems(stats):
