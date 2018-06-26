@@ -203,11 +203,20 @@ def parse_pseudo_file_metrics(m):
         for default_k, s in six.iteritems(stats):
             for k, v in six.iteritems(s or {}):
                 if default_k == 'net':
-                    for net_k, net_v in six.iteritems(v):
+                    for network_interface, net_v in six.iteritems(v):
+                        extra_labels = {"interface": network_interface}
                         for nest_net_k, nest_net_v in six.iteritems(net_v):
-                            key = '{}_{}_{}'.format(k, net_k, nest_net_k)
-                            lines += parse_line_value(default_k, key,
-                                                      nest_net_v, container)
+                            key = '{}_{}'.format(k, nest_net_k)
+                            lines += parse_line_value(default_k, key, nest_net_v, container, extra_labels)
+                elif k == 'cpuacct.usage_percpu':
+                    usage_per_cpu = {cpu: cpu_value for cpu, cpu_value in enumerate(v[0].split(" ")) if
+                                     cpu_value.isdigit()}
+                    for cpu, usage in usage_per_cpu.items():
+                        extra_labels = {"cpu": cpu}
+                        try:
+                            lines += parse_line_value(default_k, k, usage, container, extra_labels)
+                        except Exception as ex:
+                            raise
                 else:
                     lines += parse_line_value(default_k, k, v, container)
     lines.sort()
@@ -216,7 +225,7 @@ def parse_pseudo_file_metrics(m):
     return string_buffer
 
 
-def parse_line_value(default_k, k, v, container):
+def parse_line_value(default_k, k, v, container, extra_labels=None):
     k = '{}_{}'.format(default_k, k) if default_k not in k else k
     lines = []
     if isinstance(v, list):
@@ -224,19 +233,19 @@ def parse_line_value(default_k, k, v, container):
             if re.match('^[A-Za-z_]+\s[0-9]+$', item):
                 key, value = item.split(' ')
                 lines.append(
-                    make_line('{}_{}'.format(k, key), container, value))
+                    make_line('{}_{}'.format(k, key), container, value, extra_labels))
             elif re.match('^[0-9]+:[0-9]+\s[A-Za-z_]+\s[0-9]+', item):
                 _, key, value = item.split(' ')
                 lines.append(
-                    make_line('{}_{}'.format(k, key), container, value))
+                    make_line('{}_{}'.format(k, key), container, value, extra_labels))
             elif re.match('^[0-9]+$', item):
                 if len(v) > 1:
                     lines.append(
-                        make_line('{}_{}'.format(k, i), container, item))
+                        make_line('{}_{}'.format(k, i), container, item, extra_labels))
                 else:
-                    lines.append(make_line(k, container, item))
+                    lines.append(make_line(k, container, item, extra_labels))
     else:
-        lines.append(make_line(k, container, v))
+        lines.append(make_line(k, container, v, extra_labels))
     return lines
 
 
