@@ -135,12 +135,12 @@ def parse_api_metrics(m):
                 make_line('blkio_stats_io_service_bytes_%s' % stat_name.lower(),
                           container, stat_value))
         network_stats = stats.get('networks')
-        for stat_name, interface_stats in six.iteritems(network_stats or {}):
+        for network_interface, interface_stats in six.iteritems(network_stats or {}):
             for metric_name, metric_value in six.iteritems(
                             interface_stats or {}):
+                network_labels = {"interface": network_interface}
                 lines.append(
-                    make_line('networks_%s_%s' % (stat_name, metric_name),
-                              container, metric_value))
+                    make_line('network_%s' % metric_name, container, metric_value, network_labels))
     lines.sort()
     string_buffer = "\n".join(lines)
     string_buffer += "\n"
