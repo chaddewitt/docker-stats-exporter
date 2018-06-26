@@ -84,10 +84,13 @@ class PseudoFileStats(object):
     def get_metrics(self):
         metrics = {}
         cpu = self.get_psuedo_stat_dir('cpu')
+        cpu_acct = self.get_psuedo_stat_dir('cpuacct')
         memory = self.get_psuedo_stat_dir('memory')
         blkio = self.get_psuedo_stat_dir('blkio')
         net = self.get_psuedo_stat_dir('net')
-        metrics['cpu'] = parse_pseduo_dir(cpu)
+        metrics['cpu'] = {}
+        for cpu_pseduo_file_directory in [cpu_acct, cpu]:
+            metrics['cpu'].update(parse_pseduo_dir(cpu_pseduo_file_directory))
         metrics['memory'] = parse_pseduo_dir(memory)
         metrics['blkio'] = parse_pseduo_dir(blkio)
         metrics['net'] = parse_net_dev(net)

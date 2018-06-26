@@ -11,12 +11,21 @@ from flask_caching import Cache
 from psuedo_file_metrics import PseudoFileStats
 import re
 
+
+def is_enabled(variable, default):
+    if str(variable).upper() in ("TRUE", "YES", "ENABLED", "1"):
+        return True
+    elif str(variable).upper() in ("FALSE", "NO", "DISABLED", "0", ""):
+        return False
+    else:
+        return default
+
+
 METRICS = None
-REFRESH_INTERVAL = os.environ.get('REFRESH_INTERVAL', 60)
-CONTAINER_REFRESH_INTERVAL = os.environ.get('CONTAINER_REFRESH_INTERVAL', 120)
-DOCKER_CLIENT = Client(
-    base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'),version='auto')
-USE_PSEUDO_FILES = bool(os.environ.get('USE_PSEUDO_FILES', 1))
+REFRESH_INTERVAL = int(os.environ.get('REFRESH_INTERVAL', 60))
+CONTAINER_REFRESH_INTERVAL = int(os.environ.get('CONTAINER_REFRESH_INTERVAL', 120))
+DOCKER_CLIENT = Client(base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'), version='auto')
+USE_PSEUDO_FILES = is_enabled(os.environ.get('USE_PSEUDO_FILES'), True)
 CGROUP_DIRECTORY = os.environ.get('CGROUP_DIRECTORY', '/sys/fs/cgroup')
 PROC_DIRECTORY = os.environ.get('PROC_DIRECTORY', '/proc')
 
@@ -59,8 +68,7 @@ def handle_error(ex):
     response = jsonify(message=str(error))
     response.status_code = getattr(ex, 'code', 500)
     DOCKER_CLIENT = Client(
-        base_url=os.environ.get('DOCKER_CLIENT_URL',
-                                'unix://var/run/docker.sock'),version='auto')
+        base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'), version='auto')
     METRICS = update_metrics()
     return response
 
@@ -103,9 +111,12 @@ def parse_api_metrics(m):
             make_line('system_cpu_usage', container,
                       cpu_stats['system_cpu_usage']))
         for stat_name in cpu_stats.get('cpu_usage'):
-            lines.append(
-                make_line('cpu_usage_%s' % stat_name, container,
-                          cpu_stats['cpu_usage'][stat_name]))
+            metric_name = stat_name if stat_name == "cpu_usage" else 'cpu_%s' % stat_name
+            if stat_name == 'percpu_usage':
+                for cpu, stat in enumerate(cpu_stats['cpu_usage'][stat_name]):
+                    lines.append(make_line(metric_name, container, stat, {"cpu": cpu}))
+            else:
+                lines.append(make_line(metric_name, container, cpu_stats['cpu_usage'][stat_name]))
         memory_stats = stats.get('memory_stats')
         for stat_name in memory_stats:
             if stat_name != 'stats':
@@ -124,22 +135,26 @@ def parse_api_metrics(m):
                 make_line('blkio_stats_io_service_bytes_%s' % stat_name.lower(),
                           container, stat_value))
         network_stats = stats.get('networks')
-        for stat_name, interface_stats in six.iteritems(network_stats or {}):
+        for network_interface, interface_stats in six.iteritems(network_stats or {}):
             for metric_name, metric_value in six.iteritems(
                             interface_stats or {}):
+                network_labels = {"interface": network_interface}
                 lines.append(
-                    make_line('networks_%s_%s' % (stat_name, metric_name),
-                              container, metric_value))
+                    make_line('network_%s' % metric_name, container, metric_value, network_labels))
     lines.sort()
     string_buffer = "\n".join(lines)
     string_buffer += "\n"
     return string_buffer
 
 
-def make_line(metric_name, container, metric):
-    metric_name = metric_name.replace('.', '_').replace('-', '_').lower()
-    return str('docker_stats_%s{container="%s"} %s' % (metric_name, container,
-                                                       int(metric)))
+def make_line(metric_name, container, metric, extra_labels=None):
+    metric_name = str('docker_stats_%s') % metric_name.replace('.', '_').replace('-', '_').lower()
+    labels = {"container": container}
+    if extra_labels:
+        labels.update(extra_labels)
+    str_labels = ",".join(['%s="%s"' % (k, v) for k, v in labels.items()])
+    line = metric_name + '{%s}' % str_labels + " %s" % int(metric)
+    return line
 
 
 def update_container_stats(stats_dict=None):
@@ -188,11 +203,20 @@ def parse_pseudo_file_metrics(m):
         for default_k, s in six.iteritems(stats):
             for k, v in six.iteritems(s or {}):
                 if default_k == 'net':
-                    for net_k, net_v in six.iteritems(v):
+                    for network_interface, net_v in six.iteritems(v):
+                        extra_labels = {"interface": network_interface}
                         for nest_net_k, nest_net_v in six.iteritems(net_v):
-                            key = '{}_{}_{}'.format(k, net_k, nest_net_k)
-                            lines += parse_line_value(default_k, key,
-                                                      nest_net_v, container)
+                            key = '{}_{}'.format(k, nest_net_k)
+                            lines += parse_line_value(default_k, key, nest_net_v, container, extra_labels)
+                elif k == 'cpuacct.usage_percpu':
+                    usage_per_cpu = {cpu: cpu_value for cpu, cpu_value in enumerate(v[0].split(" ")) if
+                                     cpu_value.isdigit()}
+                    for cpu, usage in usage_per_cpu.items():
+                        extra_labels = {"cpu": cpu}
+                        try:
+                            lines += parse_line_value(default_k, k, usage, container, extra_labels)
+                        except Exception as ex:
+                            raise
                 else:
                     lines += parse_line_value(default_k, k, v, container)
     lines.sort()
@@ -201,7 +225,7 @@ def parse_pseudo_file_metrics(m):
     return string_buffer
 
 
-def parse_line_value(default_k, k, v, container):
+def parse_line_value(default_k, k, v, container, extra_labels=None):
     k = '{}_{}'.format(default_k, k) if default_k not in k else k
     lines = []
     if isinstance(v, list):
@@ -209,19 +233,19 @@ def parse_line_value(default_k, k, v, container):
             if re.match('^[A-Za-z_]+\s[0-9]+$', item):
                 key, value = item.split(' ')
                 lines.append(
-                    make_line('{}_{}'.format(k, key), container, value))
+                    make_line('{}_{}'.format(k, key), container, value, extra_labels))
             elif re.match('^[0-9]+:[0-9]+\s[A-Za-z_]+\s[0-9]+', item):
                 _, key, value = item.split(' ')
                 lines.append(
-                    make_line('{}_{}'.format(k, key), container, value))
+                    make_line('{}_{}'.format(k, key), container, value, extra_labels))
             elif re.match('^[0-9]+$', item):
                 if len(v) > 1:
                     lines.append(
-                        make_line('{}_{}'.format(k, i), container, item))
+                        make_line('{}_{}'.format(k, i), container, item, extra_labels))
                 else:
-                    lines.append(make_line(k, container, item))
+                    lines.append(make_line(k, container, item, extra_labels))
     else:
-        lines.append(make_line(k, container, v))
+        lines.append(make_line(k, container, v, extra_labels))
     return lines
 
 
