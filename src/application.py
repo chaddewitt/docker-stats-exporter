@@ -11,12 +11,22 @@ from flask_caching import Cache
 from psuedo_file_metrics import PseudoFileStats
 import re
 
+
+def is_enabled(variable, default):
+    if str(variable).upper() in ("TRUE", "YES", "ENABLED", "1"):
+        return True
+    elif str(variable).upper() in ("FALSE", "NO", "DISABLED", "0", ""):
+        return False
+    else:
+        return default
+
+
 METRICS = None
-REFRESH_INTERVAL = os.environ.get('REFRESH_INTERVAL', 60)
-CONTAINER_REFRESH_INTERVAL = os.environ.get('CONTAINER_REFRESH_INTERVAL', 120)
+REFRESH_INTERVAL = int(os.environ.get('REFRESH_INTERVAL', 60))
+CONTAINER_REFRESH_INTERVAL = int(os.environ.get('CONTAINER_REFRESH_INTERVAL', 120))
 DOCKER_CLIENT = Client(
     base_url=os.environ.get('DOCKER_CLIENT_URL', 'unix://var/run/docker.sock'))
-USE_PSEUDO_FILES = bool(os.environ.get('USE_PSEUDO_FILES', 1))
+USE_PSEUDO_FILES = is_enabled(os.environ.get('USE_PSEUDO_FILES'), True)
 CGROUP_DIRECTORY = os.environ.get('CGROUP_DIRECTORY', '/sys/fs/cgroup')
 PROC_DIRECTORY = os.environ.get('PROC_DIRECTORY', '/proc')
 
@@ -103,9 +113,12 @@ def parse_api_metrics(m):
             make_line('system_cpu_usage', container,
                       cpu_stats['system_cpu_usage']))
         for stat_name in cpu_stats.get('cpu_usage'):
-            lines.append(
-                make_line('cpu_usage_%s' % stat_name, container,
-                          cpu_stats['cpu_usage'][stat_name]))
+            metric_name = stat_name if stat_name == "cpu_usage" else 'cpu_%s' % stat_name
+            if stat_name == 'percpu_usage':
+                for cpu, stat in enumerate(cpu_stats['cpu_usage'][stat_name]):
+                    lines.append(make_line(metric_name, container, stat, {"cpu": cpu}))
+            else:
+                lines.append(make_line(metric_name, container, cpu_stats['cpu_usage'][stat_name]))
         memory_stats = stats.get('memory_stats')
         for stat_name in memory_stats:
             if stat_name != 'stats':
@@ -136,10 +149,14 @@ def parse_api_metrics(m):
     return string_buffer
 
 
-def make_line(metric_name, container, metric):
-    metric_name = metric_name.replace('.', '_').replace('-', '_').lower()
-    return str('docker_stats_%s{container="%s"} %s' % (metric_name, container,
-                                                       int(metric)))
+def make_line(metric_name, container, metric, extra_labels=None):
+    metric_name = str('docker_stats_%s') % metric_name.replace('.', '_').replace('-', '_').lower()
+    labels = {"container": container}
+    if extra_labels:
+        labels.update(extra_labels)
+    str_labels = ",".join(['%s="%s"' % (k, v) for k, v in labels.items()])
+    line = metric_name + '{%s}' % str_labels + " %s" % int(metric)
+    return line
 
 
 def update_container_stats(stats_dict=None):

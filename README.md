@@ -83,7 +83,7 @@ Here is a full list of the available environment variables you can set and a sho
   * Defaults to unix://var/run/docker.sock
 * USE_PSEUDO_FILES
   * Determines if the exporter will use the docker stats api or the cgroup and proc files to determines metrics. Metric names will be slightly different due to differences in parsing.
-  * Defaults to False
+  * Defaults to True
 * CGROUP_DIRECTORY
   * Determines the volume the service will parse for pseudo files
   * Defaults to /sys/fs/cgroup
