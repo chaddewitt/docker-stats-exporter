@@ -69,7 +69,7 @@ class PseudoFileStats(object):
             self.is_up = 0
 
         if self.state.get("Health"):
-            self.healthy = int(self.state["Health"].get("Status") == 'healthy')
+            self.healthy = int(self.state["Health"].get("Status") in ('healthy', 'starting'))
         else:
             self.healthy = self.is_up
 

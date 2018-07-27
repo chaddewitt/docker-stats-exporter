@@ -213,10 +213,7 @@ def parse_pseudo_file_metrics(m):
                                      cpu_value.isdigit()}
                     for cpu, usage in usage_per_cpu.items():
                         extra_labels = {"cpu": cpu}
-                        try:
-                            lines += parse_line_value(default_k, k, usage, container, extra_labels)
-                        except Exception as ex:
-                            raise
+                        lines += parse_line_value(default_k, k, usage, container, extra_labels)
                 else:
                     lines += parse_line_value(default_k, k, v, container)
     lines.sort()
